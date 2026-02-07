@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wplace_Terminator_Config
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  修改浏览器指纹，导出/导入 LocalStorage 与 IndexedDB 配置，支持快捷键
 // @author       linalg
 // @match        https://wplace.live/*
@@ -20,6 +20,7 @@
         "wplace_selected_palette_colors_v1",
         "wplace_ruler_purecolor_mode",
         "wplace_ruler_random_mode_v1",
+        "wplace_ruler_reverse_mode",
         "theme",
         "selected-color",
         "show-all-colors",
@@ -163,7 +164,7 @@
                     }
 
                     alert("导入成功！页面即将刷新应用新配置。");
-                    location.reload();
+                    window.location.href = "wplace.live";
                 } catch (err) {
                     console.error(err);
                     alert("导入失败，请检查 JSON 文件格式是否正确。");
