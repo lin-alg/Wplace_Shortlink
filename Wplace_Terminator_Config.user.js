@@ -164,7 +164,7 @@
                     }
 
                     alert("导入成功！页面即将刷新应用新配置。");
-                    window.location.href = "wplace.live";
+                    window.location.href = "https://wplace.live";
                 } catch (err) {
                     console.error(err);
                     alert("导入失败，请检查 JSON 文件格式是否正确。");
