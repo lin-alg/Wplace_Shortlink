@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wplace_Terminator_Config
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  修改浏览器指纹，导出/导入 LocalStorage 与 IndexedDB 配置，支持快捷键
 // @author       linalg
 // @match        https://wplace.live/*
