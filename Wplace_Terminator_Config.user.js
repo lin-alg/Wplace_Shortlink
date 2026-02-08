@@ -21,6 +21,7 @@
         "wplace_ruler_purecolor_mode",
         "wplace_ruler_random_mode_v1",
         "wplace_ruler_reverse_mode",
+        "wplace_ruler_peace_mode",
         "theme",
         "selected-color",
         "show-all-colors",
