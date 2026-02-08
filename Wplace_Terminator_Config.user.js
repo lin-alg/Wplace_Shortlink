@@ -47,11 +47,40 @@
         return null;
     }
 
-    // --- 2. IndexedDB 导出函数 ---
+    // --- 2. 数据库健壮性检查 ---
+    async function ensureDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, 1);
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                const storeName = "wplace_ruler_persistent_v1";
+                if (!db.objectStoreNames.contains(storeName)) {
+                    db.createObjectStore(storeName);
+                    console.log(`[IndexedDB] 已自动创建缺失的表: ${storeName}`);
+                }
+            };
+            request.onsuccess = (e) => {
+                e.target.result.close();
+                resolve();
+            };
+            request.onerror = (e) => {
+                console.error("[IndexedDB] 数据库初始化失败", e);
+                reject(e);
+            };
+        });
+    }
+
+    // --- 3. IndexedDB 导出函数 ---
     async function exportIDB() {
+        try {
+            await ensureDB();
+        } catch (e) {
+            return {};
+        }
+
         return new Promise((resolve) => {
             const request = indexedDB.open(DB_NAME);
-            request.onerror = () => resolve(null);
+            request.onerror = () => resolve({});
             request.onsuccess = async (event) => {
                 const db = event.target.result;
                 const result = {};
@@ -65,22 +94,25 @@
 
                 for (let storeName of storeNames) {
                     result[storeName] = await new Promise((res) => {
-                        const transaction = db.transaction(storeName, "readonly");
-                        const store = transaction.objectStore(storeName);
-                        const getAllRequest = store.getAll();
-                        const getAllKeysRequest = store.getAllKeys();
+                        try {
+                            const transaction = db.transaction(storeName, "readonly");
+                            const store = transaction.objectStore(storeName);
+                            const getAllRequest = store.getAll();
+                            const getAllKeysRequest = store.getAllKeys();
 
-                        getAllRequest.onsuccess = () => {
-                            getAllKeysRequest.onsuccess = () => {
-                                // 组装键值对
-                                const items = getAllRequest.result.map((val, i) => ({
-                                    key: getAllKeysRequest.result[i],
-                                    value: val
-                                }));
-                                res(items);
+                            getAllRequest.onsuccess = () => {
+                                getAllKeysRequest.onsuccess = () => {
+                                    const items = getAllRequest.result.map((val, i) => ({
+                                        key: getAllKeysRequest.result[i],
+                                        value: val
+                                    }));
+                                    res(items);
+                                };
                             };
-                        };
-                        getAllRequest.onerror = () => res([]);
+                            getAllRequest.onerror = () => res([]);
+                        } catch (err) {
+                            res([]);
+                        }
                     });
                 }
                 db.close();
@@ -89,17 +121,25 @@
         });
     }
 
-    // --- 3. IndexedDB 导入函数 ---
+    // --- 4. IndexedDB 导入函数 ---
     async function importIDB(data) {
+        await ensureDB();
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(DB_NAME);
             request.onsuccess = (event) => {
                 const db = event.target.result;
-                const storeNames = Object.keys(data);
-                if (storeNames.length === 0) { db.close(); resolve(); return; }
+                const incomingStoreNames = Object.keys(data);
 
-                const transaction = db.transaction(storeNames, "readwrite");
-                storeNames.forEach(name => {
+                const validStores = incomingStoreNames.filter(name => db.objectStoreNames.contains(name));
+
+                if (validStores.length === 0) {
+                    db.close();
+                    resolve();
+                    return;
+                }
+
+                const transaction = db.transaction(validStores, "readwrite");
+                validStores.forEach(name => {
                     const store = transaction.objectStore(name);
                     store.clear(); // 清空当前旧数据
                     data[name].forEach(item => {
@@ -107,14 +147,20 @@
                     });
                 });
 
-                transaction.oncomplete = () => { db.close(); resolve(); };
-                transaction.onerror = () => reject();
+                transaction.oncomplete = () => {
+                    db.close();
+                    resolve();
+                };
+                transaction.onerror = (e) => {
+                    db.close();
+                    reject(e);
+                };
             };
             request.onerror = (e) => reject(e);
         });
     }
 
-    // --- 4. 主导出逻辑 (Ctrl + Alt + E) ---
+    // --- 5. 主导出逻辑 (Ctrl + Alt + E) ---
     async function handleExport() {
         console.log("准备导出数据...");
         const backup = {
