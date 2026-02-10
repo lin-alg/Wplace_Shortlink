@@ -54,7 +54,7 @@
             const request = indexedDB.open(DB_NAME, 1);
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
-                const storeName = "wplace_ruler_persistent_v1";
+                const storeName = "persisted_data";
                 if (!db.objectStoreNames.contains(storeName)) {
                     db.createObjectStore(storeName);
                     console.log(`[IndexedDB] 已自动创建缺失的表: ${storeName}`);
