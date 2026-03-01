@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wplace_Terminator_Config
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  修改浏览器指纹，导出/导入 LocalStorage 与 IndexedDB 配置，支持快捷键
 // @author       linalg
 // @match        https://wplace.live/*
@@ -22,6 +22,7 @@
         "wplace_ruler_random_mode_v1",
         "wplace_ruler_reverse_mode",
         "wplace_ruler_peace_mode",
+        "wplace_ruler_advanced_mode_v1",
         "theme",
         "selected-color",
         "show-all-colors",
