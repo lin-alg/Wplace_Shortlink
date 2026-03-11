@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wplace_Terminator_Config
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      2.0
 // @description  修改浏览器指纹，导出/导入 LocalStorage 与 IndexedDB 配置，支持快捷键
 // @author       linalg
 // @match        https://wplace.live/*
@@ -9,11 +9,60 @@
 // @downloadURL  https://raw.githubusercontent.com/lin-alg/Wplace_Shortlink/main/Wplace_Terminator_Config.user.js
 // @grant        unsafeWindow
 // @require      https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js
+// @run-at       document-start
 // ==/UserScript==
 
 (function() {
     'use strict';
+    (function() {
+        'use strict';
+        const win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+        const originalRAF = win.requestAnimationFrame;
 
+        let lastPulseTime = 0;
+        let isInteracting = false;
+        let lastInteractionTime = 0;
+        let frameQueue = []; // 待执行任务队列
+
+        const IDLE_WAIT = 1000;
+        const IDLE_FPS = 20;
+        const ACTIVE_FPS = 30;
+
+        // 交互唤醒逻辑
+        const wakeUp = () => { isInteracting = true; lastInteractionTime = performance.now(); };
+        ['mousedown', 'wheel', 'keydown', 'touchstart', 'touchmove'].forEach(evt => {
+            window.addEventListener(evt, wakeUp, { passive: true, capture: true });
+        });
+
+        // 核心劫持：将所有请求塞进队列
+        win.requestAnimationFrame = function(callback) {
+            frameQueue.push(callback);
+        };
+
+        // 开启一个独立的主心跳，统一调度
+        const masterLoop = (now) => {
+            if (isInteracting && now - lastInteractionTime > IDLE_WAIT) isInteracting = false;
+
+            const limit = document.hidden ? 1 : (isInteracting ? ACTIVE_FPS : IDLE_FPS);
+            const interval = 1000 / limit;
+
+            if (now - lastPulseTime >= interval - 0.5) {
+                lastPulseTime = now;
+
+                // 【关键】一次性清空队列，让所有图层同步重绘
+                const currentQueue = frameQueue;
+                frameQueue = [];
+                for (let i = 0; i < currentQueue.length; i++) {
+                    currentQueue[i](now);
+                }
+            }
+
+            originalRAF(masterLoop);
+        };
+
+        originalRAF(masterLoop);
+        console.log("%c 🚀 帧率已降低", "color: #00ffff; font-weight: bold;");
+    })();
     // LocalStorage 键名列表
     const LS_KEYS = [
         "wplace_ruler_color_v1",
