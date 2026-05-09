@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wplace_Terminator_Config
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @description  Wplace优化插件
 // @author       linalg
 // @match        https://wplace.live/*
@@ -185,7 +185,7 @@
         try {
             const res = await apiRequest('/api/blacklist', { user_id: userId });
             if (res.status === 'success' && res.data) {
-                [ { lbl: 'Politics', cnt: res.data["0"] }, { lbl: 'Griefing', cnt: res.data["1"] } ].forEach(tag => {
+                [ { lbl: '见证蛆', cnt: res.data["0"] }, { lbl: '毁画狗', cnt: res.data["1"] } ].forEach(tag => {
                     if (tag.cnt > 0) {
                         const span = document.createElement('span');
                         span.className = `btn btn-xs gap-0.5 border-0 px-1.5 wt-custom-tag`;
