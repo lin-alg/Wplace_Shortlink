@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wplace_Terminator_Config
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @description  Wplace优化插件
 // @author       linalg
 // @match        https://wplace.live/*
@@ -30,6 +30,57 @@
         "show-paint-more-than-one-pixel-msg", "PARAGLIDE_LOCALE", "location", "muted"
     ];
     const DB_NAME = "wplace_ruler_db_v1";
+
+    // --- 标签数据缓存/限流（排行榜会批量请求，避免刷爆 API） ---
+    const blacklistCache = new Map();      // userId -> data|null
+    const blacklistInFlight = new Map();   // userId -> Promise
+    const BLACKLIST_MAX_CONCURRENCY = 6;
+    let blacklistActive = 0;
+    const blacklistQueue = [];
+
+    function enqueueBlacklistRequest(task) {
+        return new Promise((resolve, reject) => {
+            blacklistQueue.push({ task, resolve, reject });
+
+            const pump = () => {
+                while (blacklistActive < BLACKLIST_MAX_CONCURRENCY && blacklistQueue.length > 0) {
+                    const job = blacklistQueue.shift();
+                    blacklistActive += 1;
+                    Promise.resolve()
+                        .then(job.task)
+                        .then(job.resolve, job.reject)
+                        .finally(() => {
+                            blacklistActive -= 1;
+                            pump();
+                        });
+                }
+            };
+
+            pump();
+        });
+    }
+
+    function fetchBlacklistData(userId) {
+        const key = String(userId);
+        if (blacklistCache.has(key)) return Promise.resolve(blacklistCache.get(key));
+        if (blacklistInFlight.has(key)) return blacklistInFlight.get(key);
+
+        const promise = enqueueBlacklistRequest(() => apiRequest('/api/blacklist', { user_id: key }))
+            .then((res) => {
+                const data = (res && res.status === 'success' && res.data) ? res.data : null;
+                blacklistCache.set(key, data);
+                blacklistInFlight.delete(key);
+                return data;
+            })
+            .catch(() => {
+                blacklistCache.set(key, null);
+                blacklistInFlight.delete(key);
+                return null;
+            });
+
+        blacklistInFlight.set(key, promise);
+        return promise;
+    }
 
 
     // --- 0. API 请求 ---
@@ -106,6 +157,8 @@
                     GM_setValue('wplace_api_passkey', res.passkey);
                     alert('授权成功！高级功能已启用。');
                     dialog.remove();
+                    // 立即刷新一次注入（登录前因为无 passkey 可能没打上标签）
+                    setTimeout(injectUI, 0);
                 } else alert('认证失败: ' + (res.msg || '未知错误'));
             } catch (e) { alert('网络错误，无法连接验证服务器。'); }
 
@@ -181,20 +234,36 @@
         return '';
     }
 
-    async function fetchAndInjectTags(userId, container) {
+    async function fetchAndInjectTags(userId, container, options = {}) {
+        const tagClassName = options.tagClassName || 'btn btn-xs gap-0.5 border-0 px-1.5';
+        const extraClassName = options.extraClassName || '';
+        let insertAfterEl = options.insertAfterEl || null;
+
+        if (!container) return;
+
         try {
-            const res = await apiRequest('/api/blacklist', { user_id: userId });
-            if (res.status === 'success' && res.data) {
-                [ { lbl: '见证蛆', cnt: res.data["0"] }, { lbl: '毁画狗', cnt: res.data["1"] } ].forEach(tag => {
-                    if (tag.cnt > 0) {
-                        const span = document.createElement('span');
-                        span.className = `btn btn-xs gap-0.5 border-0 px-1.5 wt-custom-tag`;
-                        span.style.cssText = getColorStyle(tag.cnt);
-                        span.textContent = `${tag.lbl}: ${tag.cnt}`;
+            const data = await fetchBlacklistData(userId);
+            if (!data) return;
+            if (!container.isConnected) return;
+
+            [
+                { lbl: '见证蛆', cnt: Number(data["0"] || 0) },
+                { lbl: '毁画狗', cnt: Number(data["1"] || 0) }
+            ].forEach(tag => {
+                if (tag.cnt > 0) {
+                    const span = document.createElement('span');
+                    span.className = `${tagClassName} wt-custom-tag${extraClassName ? ' ' + extraClassName : ''}`;
+                    span.style.cssText = getColorStyle(tag.cnt);
+                    span.textContent = `${tag.lbl}: ${tag.cnt}`;
+
+                    if (insertAfterEl && insertAfterEl.insertAdjacentElement) {
+                        insertAfterEl.insertAdjacentElement('afterend', span);
+                        insertAfterEl = span;
+                    } else {
                         container.appendChild(span);
                     }
-                });
-            }
+                }
+            });
         } catch(e) {}
     }
 
@@ -262,6 +331,41 @@
                 injectReportMenuItems(dropdownMenu, userId);
             }
         });
+
+        // 3.3 注入排行榜（table 行）：在 badge 后面追加标签
+        const passkey = GM_getValue('wplace_api_passkey', null);
+        if (passkey) {
+            document.querySelectorAll('tr').forEach((row) => {
+                const tds = row.querySelectorAll('td');
+                if (tds.length < 3) return;
+                const rankText = (tds[0].textContent || '').trim();
+                if (!/^\d+$/.test(rankText)) return;
+
+                const idSpan = Array.from(row.querySelectorAll('span')).find(s => /^#\d+$/.test((s.textContent || '').trim()));
+                if (!idSpan) return;
+                const userId = (idSpan.textContent || '').trim().slice(1);
+                if (!userId) return;
+
+                if (row.dataset.wtLeaderboardProcessed === userId) return;
+
+                // 目标容器：包含用户名/#id/国旗/badge 的那一行
+                const lineContainer = idSpan.closest('div') || tds[1];
+                if (!lineContainer) return;
+
+                // 清理旧标签（只清理排行榜注入的，避免影响别处）
+                row.querySelectorAll('.wt-leaderboard-tag').forEach(e => e.remove());
+
+                const badges = Array.from(lineContainer.querySelectorAll('span.badge'));
+                const insertAfterEl = (badges.length > 0 ? badges[badges.length - 1] : null);
+
+                row.dataset.wtLeaderboardProcessed = userId;
+                fetchAndInjectTags(userId, lineContainer, {
+                    tagClassName: 'badge badge-sm ml-0.5 border-0',
+                    extraClassName: 'wt-leaderboard-tag',
+                    insertAfterEl
+                });
+            });
+        }
     }
 
     function initSmartScanner() {
