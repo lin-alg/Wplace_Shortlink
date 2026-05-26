@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wplace_Terminator_Config
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.3
 // @description  Wplace优化插件
 // @author       linalg
 // @match        https://wplace.live/*
@@ -25,61 +25,41 @@
 
     const LS_KEYS = [
         "wplace_ruler_color_v1", "wplace_selected_palette_colors_v1", "wplace_ruler_purecolor_mode",
-        "wplace_ruler_random_mode_v1", "wplace_ruler_reverse_mode", "wplace_ruler_peace_mode",
-        "wplace_ruler_advanced_mode_v1", "theme", "selected-color", "show-all-colors",
+        "wplace_ruler_random_mode_v1", "wplace_ruler_reverse_mode", "wplace_ruler_peace_mode", "wplace_ruler_overwrite_mode_v1", 
+        "wplace_overwrite_palette_colors_v1", "wplace_ruler_advanced_mode_v1", "theme", "selected-color", "show-all-colors",
         "show-paint-more-than-one-pixel-msg", "PARAGLIDE_LOCALE", "location", "muted"
     ];
     const DB_NAME = "wplace_ruler_db_v1";
 
-    // --- 标签数据缓存/限流（排行榜会批量请求，避免刷爆 API） ---
-    const blacklistCache = new Map();      // userId -> data|null
-    const blacklistInFlight = new Map();   // userId -> Promise
-    const BLACKLIST_MAX_CONCURRENCY = 6;
-    let blacklistActive = 0;
-    const blacklistQueue = [];
+    // --- 标签数据缓存（一次性获取全部黑名单） ---
+    let blacklistAllCache = null;          // { userId: {0: count, 1: count} }
+    let blacklistAllInFlight = null;       // Promise
 
-    function enqueueBlacklistRequest(task) {
-        return new Promise((resolve, reject) => {
-            blacklistQueue.push({ task, resolve, reject });
+    function fetchBlacklistAll() {
+        if (blacklistAllCache) return Promise.resolve(blacklistAllCache);
+        if (blacklistAllInFlight) return blacklistAllInFlight;
 
-            const pump = () => {
-                while (blacklistActive < BLACKLIST_MAX_CONCURRENCY && blacklistQueue.length > 0) {
-                    const job = blacklistQueue.shift();
-                    blacklistActive += 1;
-                    Promise.resolve()
-                        .then(job.task)
-                        .then(job.resolve, job.reject)
-                        .finally(() => {
-                            blacklistActive -= 1;
-                            pump();
-                        });
-                }
-            };
+        const promise = apiRequest('/api/blacklist', {})
+            .then((res) => {
+                const data = (res && res.status === 'success' && res.data && typeof res.data === 'object') ? res.data : {};
+                blacklistAllCache = data;
+                blacklistAllInFlight = null;
+                return data;
+            })
+            .catch(() => {
+                blacklistAllCache = {};
+                blacklistAllInFlight = null;
+                return {};
+            });
 
-            pump();
-        });
+        blacklistAllInFlight = promise;
+        return promise;
     }
 
     function fetchBlacklistData(userId) {
         const key = String(userId);
-        if (blacklistCache.has(key)) return Promise.resolve(blacklistCache.get(key));
-        if (blacklistInFlight.has(key)) return blacklistInFlight.get(key);
-
-        const promise = enqueueBlacklistRequest(() => apiRequest('/api/blacklist', { user_id: key }))
-            .then((res) => {
-                const data = (res && res.status === 'success' && res.data) ? res.data : null;
-                blacklistCache.set(key, data);
-                blacklistInFlight.delete(key);
-                return data;
-            })
-            .catch(() => {
-                blacklistCache.set(key, null);
-                blacklistInFlight.delete(key);
-                return null;
-            });
-
-        blacklistInFlight.set(key, promise);
-        return promise;
+        if (blacklistAllCache) return Promise.resolve(blacklistAllCache[key] || null);
+        return fetchBlacklistAll().then((data) => data[key] || null);
     }
 
 
