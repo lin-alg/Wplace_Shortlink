@@ -8,8 +8,8 @@
 // @match        *://*.wplace.live/*
 // @run-at       document-start
 // @grant        unsafeWindow
-// @updateURL    https://raw.githubusercontent.com/<你的GitHub用户名>/<仓库名>/main/wplace.user.js
-// @downloadURL  https://raw.githubusercontent.com/<你的GitHub用户名>/<仓库名>/main/wplace.user.js
+// @updateURL    https://raw.githubusercontent.com/lin-alg/Wplace_Shortlink/main/wplace_enhancement.user.js
+// @downloadURL  https://raw.githubusercontent.com/lin-alg/Wplace_Shortlink/main/wplace_enhancement.user.js
 // ==/UserScript==
 
 (function () {
